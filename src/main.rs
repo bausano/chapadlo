@@ -6,8 +6,10 @@ use client::Client;
 use prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, Read, Write};
 
 #[derive(Debug, Deserialize)]
 struct TransactionCsv {
@@ -57,21 +59,23 @@ struct ClientCsv {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let data = "\
-    type, client, tx, amount
-    deposit,1,6,2.0
-    deposit,1,1, 1.0
-    deposit,2,2,   6.0
-    withdrawal,1,4,1.5
-    dispute,1,6,
-    deposit,1,3,2.0
-    withdrawal,2,5,3.0
-    resolve,1,6,
-    dispute,1,6,
-    deposit,2,7,5.0
-    dispute,1,1,
-    chargeback,2,7,";
+    // skip first arg as that's the binary path
+    let file = if let Some(csv_path) = env::args().skip(1).next() {
+        File::open(csv_path).map_err(|_| "cannot open csv file")
+    } else {
+        Err("no input file path provided")
+    }?;
 
+    let clients = read_csv(file)?;
+
+    write_csv(io::stdout(), clients)?;
+
+    Ok(())
+}
+
+fn read_csv(
+    handle: impl Read,
+) -> Result<HashMap<ClientId, Client>, &'static str> {
     // adding new clients to this hashmap will be expensive, but we assume that
     // there are many more transactions than clients and optimize for
     // retrieval
@@ -79,28 +83,36 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut rdr = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
-        .from_reader(data.as_bytes());
+        .from_reader(handle);
     for result in rdr.deserialize() {
-        let tx: TransactionCsv = result?;
+        let tx: TransactionCsv = result.map_err(|_| "Invalid row")?;
 
         let client = clients.entry(tx.client_id).or_insert(Client::default());
         client.process_transaction(tx.id, tx.kind, tx.amount)?;
     }
 
+    Ok(clients)
+}
+
+fn write_csv(
+    mut handle: impl Write,
+    mut clients: HashMap<ClientId, Client>,
+) -> Result<(), &'static str> {
+    const FLUSH_EVERY_N_ROWS: usize = 100;
+
     println!("client,available,held,total,locked");
 
-    let mut stdout = io::stdout();
     for (index, (id, client)) in clients.drain().enumerate() {
-        stdout
+        handle
             .write_all(&client.into_csv_row(id)?.into_bytes())
-            .map_err(|_| "cannot write to stdout")?;
+            .map_err(|_| "cannot write into buffer")?;
 
-        if index % 100 == 0 {
-            stdout.flush().map_err(|_| "cannot flush to stdout")?;
+        if index % FLUSH_EVERY_N_ROWS == 0 {
+            handle.flush().map_err(|_| "cannot flush buffer")?;
         }
     }
 
-    stdout.flush().map_err(|_| "cannot flush to stdout")?;
+    handle.flush().map_err(|_| "cannot flush buffer")?;
 
     Ok(())
 }
