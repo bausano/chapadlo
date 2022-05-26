@@ -7,7 +7,7 @@
 # order of client ids. That the header is always the first line is asserted
 # in unit tests.
 
-cargo test
+cargo test || exit 1
 
 test_file_1_output="$(cargo run -- test/assets/input1.csv | sort)"
 expected_test_file_1_output="1,0.5000,3.0,3.5000,false
@@ -18,4 +18,4 @@ echo
 echo
 [[ "${expected_test_file_1_output}" == "${test_file_1_output}" ]] \
     && echo "✔ Test 1 one passed" \
-    || echo "✘ Test 1 failed"
+    || echo -e "✘ Test 1 failed\n\n${test_file_1_output}"

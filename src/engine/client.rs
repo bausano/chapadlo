@@ -17,7 +17,7 @@ enum FlaggedTransactionState {
 }
 
 impl Client {
-    pub(crate) fn process_transaction(
+    pub(super) fn process_transaction(
         &mut self,
         id: TxId,
         kind: TransactionKindCsv,
