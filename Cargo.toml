@@ -1,0 +1,9 @@
+[package]
+name = "chapadlo"
+version = "0.1.0"
+edition = "2021"
+description = "A showcase CLI tool for parallel CSV processing"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+csv = "1.1"
