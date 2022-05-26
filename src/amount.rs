@@ -1,6 +1,7 @@
 //! Decimal is represented by [`u64`] in this program. There are [`DECIMALS`]
 //! decimal places that the amounts are scaled by in the program.
 
+use crate::prelude::*;
 use std::fmt;
 use std::str::FromStr;
 
@@ -21,33 +22,31 @@ impl Amount {
 }
 
 impl FromStr for Amount {
-    type Err = &'static str;
+    type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let amount = match input.find('.') {
             // special case for omitting decimal dot
-            None => u64::from_str(input)
-                .map_err(|_| "cannot parse input to u64")?
+            None => u64::from_str(input)?
                 .checked_mul(DECIMAL_MULTIPLIER)
-                .ok_or("deposit amount too large for u64"),
+                .ok_or(anyhow!("math overflow")),
             Some(decimal_dot_index)
                 if decimal_dot_index == 0
                     || decimal_dot_index == input.len() - 1 =>
             {
                 // TBD: we could also parse ".123" or "123." here
-                Err("not a decimal number")
+                Err(anyhow!("not a decimal number"))
             }
             // if more than 4 decimal places "0.1231"
             Some(decimal_dot_index)
                 if decimal_dot_index + DECIMALS + 1 <= input.len() =>
             {
-                Err("at most 4 decimal places allowed")
+                Err(anyhow!("at most 4 decimal places allowed"))
             }
             Some(decimal_dot_index) => {
-                let integer_part = u64::from_str(&input[..decimal_dot_index])
-                    .map_err(|_| "cannot parse input to u64")?
+                let integer_part = u64::from_str(&input[..decimal_dot_index])?
                     .checked_mul(DECIMAL_MULTIPLIER)
-                    .ok_or("deposit amount too large for u64")?;
+                    .ok_or(anyhow!("math overflow"))?;
 
                 // cases:
                 // "0.1" => 4 - 1 => 10^3 => 1 * 1000 => 0_1000
@@ -59,14 +58,13 @@ impl FromStr for Amount {
                 // we know that "i" is not the last char in the string due to prev
                 // match branch
                 let decimal_part =
-                    u64::from_str(&input[(decimal_dot_index + 1)..])
-                        .map_err(|_| "cannot parse input to u64")?
+                    u64::from_str(&input[(decimal_dot_index + 1)..])?
                         .checked_mul(10_u64.pow(decimal_multiplier as u32))
-                        .ok_or("deposit amount too large for u64")?;
+                        .ok_or(anyhow!("math overflow"))?;
 
                 integer_part
                     .checked_add(decimal_part)
-                    .ok_or("deposit amount too large for u64")
+                    .ok_or(anyhow!("math overflow"))
             }
         }?;
 

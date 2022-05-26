@@ -22,7 +22,7 @@ impl Client {
         id: TxId,
         kind: TransactionKindCsv,
         amount: Option<String>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<()> {
         match kind {
             TransactionKindCsv::ChargeBack => {
                 self.flagged
@@ -32,31 +32,30 @@ impl Client {
                 self.flagged.insert(id, FlaggedTransactionState::Disputed);
             }
             TransactionKindCsv::Resolve => {
-                match self
-                    .flagged
-                    .get(&id)
-                    .ok_or("Cannot resolve what's not disputed")?
-                {
-                    FlaggedTransactionState::Disputed => {
+                match self.flagged.get(&id) {
+                    Some(FlaggedTransactionState::Disputed) => {
                         // we don't care if [`None`], it's provider's feed err
                         self.flagged.remove(&id);
                     }
                     // cannot resolve charged back tx, account frozen
-                    FlaggedTransactionState::ChargedBack => (),
+                    Some(FlaggedTransactionState::ChargedBack) => (),
+                    // cannot resolve what's not disputed
+                    None => (),
                 };
             }
             TransactionKindCsv::Withdrawal => {
                 let amount = Amount::from_str(
-                    &amount.ok_or("missing amount for withdrawal")?,
+                    &amount
+                        .ok_or(anyhow!("missing amount for withdrawal tx"))?,
                 )?;
                 self.withdrawn = self
                     .withdrawn
                     .checked_add(amount)
-                    .ok_or("withdrawal amount too large")?;
+                    .ok_or(anyhow!("math overflow"))?;
             }
             TransactionKindCsv::Deposit => {
                 let amount = Amount::from_str(
-                    &amount.ok_or("missing amount for deposit")?,
+                    &amount.ok_or(anyhow!("missing amount for deposit tx"))?,
                 )?;
                 self.deposits.push((id, amount));
             }
@@ -65,7 +64,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn into_csv_row(self, id: ClientId) -> Result<String, &'static str> {
+    pub fn into_csv_row(self, id: ClientId) -> Result<String> {
         let mut frozen = false;
         let mut available = Amount(0);
         let mut held = Amount(0);
@@ -74,7 +73,7 @@ impl Client {
                 Some(FlaggedTransactionState::Disputed) => {
                     held = held
                         .checked_add(amount)
-                        .ok_or("held amount too large")?;
+                        .ok_or(anyhow!("math overflow"))?;
                 }
                 Some(FlaggedTransactionState::ChargedBack) => {
                     frozen = true;
@@ -82,18 +81,19 @@ impl Client {
                 None => {
                     available = available
                         .checked_add(amount)
-                        .ok_or("available amount too large")?;
+                        .ok_or(anyhow!("math overflow"))?;
                 }
             }
         }
 
+        // TBD: should be enable this scenario?
         let available = available
             .checked_sub(self.withdrawn)
-            .ok_or("withdrawn more than deposited")?;
+            .ok_or(anyhow!("withdrawn more than deposited"))?;
 
         let total = held
             .checked_add(available)
-            .ok_or("total amount too large")?;
+            .ok_or(anyhow!("math overflow"))?;
 
         Ok(format!(
             "{},{},{},{},{}\n",

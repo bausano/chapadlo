@@ -66,7 +66,7 @@ struct TransactionCsv {
 /// to create client state representation.
 pub fn read_transactions(
     handle: impl Read,
-) -> Result<HashMap<ClientId, Client>, &'static str> {
+) -> Result<HashMap<ClientId, Client>> {
     // adding new clients to this hashmap will be expensive, but we assume that
     // there are many more transactions than clients and optimize for
     // retrieval
@@ -76,7 +76,8 @@ pub fn read_transactions(
         .trim(csv::Trim::All)
         .from_reader(handle);
     for result in rdr.deserialize() {
-        let tx: TransactionCsv = result.map_err(|_| "Invalid row")?;
+        let tx: TransactionCsv = result
+            .with_context(|| format!("Invalid transaction row format"))?;
 
         let client = clients.entry(tx.client_id).or_insert(Client::default());
         client.process_transaction(tx.id, tx.kind, tx.amount)?;
@@ -90,26 +91,22 @@ pub fn read_transactions(
 pub fn write_clients(
     mut handle: impl Write,
     mut clients: HashMap<ClientId, Client>,
-) -> Result<(), &'static str> {
+) -> Result<()> {
     // Enables the piped recipient to process the output as stream if they
     // wish so
     const FLUSH_EVERY_N_ROWS: usize = 100;
 
-    handle
-        .write_all(CSV_HEADERS)
-        .map_err(|_| "cannot write into buffer")?;
+    handle.write_all(CSV_HEADERS)?;
 
     for (index, (id, client)) in clients.drain().enumerate() {
-        handle
-            .write_all(&client.into_csv_row(id)?.into_bytes())
-            .map_err(|_| "cannot write into buffer")?;
+        handle.write_all(&client.into_csv_row(id)?.into_bytes())?;
 
         if index % FLUSH_EVERY_N_ROWS == 0 {
-            handle.flush().map_err(|_| "cannot flush buffer")?;
+            handle.flush()?;
         }
     }
 
-    handle.flush().map_err(|_| "cannot flush buffer")?;
+    handle.flush()?;
 
     Ok(())
 }
