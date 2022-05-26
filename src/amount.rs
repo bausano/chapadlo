@@ -43,7 +43,6 @@ impl FromStr for Amount {
                 if decimal_dot_index == 0
                     || decimal_dot_index == input.len() - 1 =>
             {
-                // TBD: we could also parse ".123" or "123." here
                 Err(anyhow!("not a decimal number"))
             }
             // if more than 4 decimal places "0.1231"

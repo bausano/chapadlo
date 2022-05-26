@@ -75,12 +75,29 @@ pub fn read_transactions(
     let mut rdr = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(handle);
-    for result in rdr.deserialize() {
-        let tx: TransactionCsv =
-            result.with_context(|| "Invalid transaction row format")?;
-
-        let client = clients.entry(tx.client_id).or_default();
-        client.process_transaction(tx.id, tx.kind, tx.amount.as_deref())?;
+    for result in rdr.deserialize::<TransactionCsv>() {
+        match result {
+            Ok(tx) => {
+                let client = clients.entry(tx.client_id).or_default();
+                client.process_transaction(
+                    tx.id,
+                    tx.kind,
+                    tx.amount.as_deref(),
+                )?;
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    csv::ErrorKind::UnequalLengths { .. }
+                ) =>
+            {
+                // blank row, skip it
+                continue;
+            }
+            Err(e) => {
+                return Err(e).with_context(|| "Invalid transaction row format")
+            }
+        };
     }
 
     Ok(clients)
@@ -109,4 +126,128 @@ pub fn write_clients(
     handle.flush()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_parses_empty_csv() {
+        let input = "";
+
+        assert_eq!(
+            read_transactions(input.as_bytes()).unwrap(),
+            Default::default()
+        );
+    }
+
+    #[test]
+    fn it_ignores_white_spaces() -> Result<()> {
+        let input = "\
+        type   , client, tx, amount
+        deposit ,2,6,   2.0
+        deposit, 2,3,   6.0
+
+
+        ";
+
+        let mut client = Client::default();
+        client.process_transaction(
+            6,
+            TransactionKindCsv::Deposit,
+            Some("2.0"),
+        )?;
+        client.process_transaction(
+            3,
+            TransactionKindCsv::Deposit,
+            Some("6.0"),
+        )?;
+
+        assert_eq!(
+            read_transactions(input.as_bytes()).unwrap(),
+            vec![(2, client)].into_iter().collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_writes_empty_clients_to_buffer() -> Result<()> {
+        let mut buf = vec![];
+        write_clients(&mut buf, Default::default())?;
+
+        let csv = String::from_utf8(buf)?;
+
+        assert_eq!(csv, "client,available,held,total,locked\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_writes_clients_to_buffer() -> Result<()> {
+        let mut client1 = Client::default();
+        client1.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client1.process_transaction(
+            2,
+            TransactionKindCsv::Withdrawal,
+            Some("1"),
+        )?;
+        client1.process_transaction(
+            3,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client1.process_transaction(3, TransactionKindCsv::Dispute, None)?;
+        client1.process_transaction(3, TransactionKindCsv::Dispute, None)?;
+        client1.process_transaction(3, TransactionKindCsv::Resolve, None)?;
+
+        let mut client2 = Client::default();
+        client2.process_transaction(
+            5,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client2.process_transaction(
+            6,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client2.process_transaction(
+            7,
+            TransactionKindCsv::Withdrawal,
+            Some("1"),
+        )?;
+        client2.process_transaction(5, TransactionKindCsv::ChargeBack, None)?;
+        // this will have no effect, wrong client
+        client2.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
+        client2.process_transaction(
+            8,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client2.process_transaction(8, TransactionKindCsv::Dispute, None)?;
+
+        let mut buf = vec![];
+        write_clients(
+            &mut buf,
+            vec![(10, client1), (15, client2), (20, Client::default())]
+                .into_iter()
+                .collect(),
+        )?;
+
+        let csv = String::from_utf8(buf)?;
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "client,available,held,total,locked");
+        assert!(lines.contains(&"10,1.0000,0.0000,1.0000,false"));
+        assert!(lines.contains(&"15,0.0000,1.0000,1.0000,true"));
+        assert!(lines.contains(&"20,0.0000,0.0000,0.0000,false"));
+
+        Ok(())
+    }
 }

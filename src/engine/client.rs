@@ -7,7 +7,7 @@ use crate::prelude::*;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Client {
     /// Deposit txs are kept in vec instead of a map because it's
     /// write heavy and we don't actually need to read those txs more than
@@ -66,8 +66,6 @@ impl Client {
                     // from ChargedBack to Resolve is not a valid transition,
                     // cannot resolve charged back tx and the account must be
                     // frozen, skip this as a provider mistake
-                    //
-                    // TODO: log this scenario
                     Some(FlaggedTransactionState::ChargedBack) => (),
                     // cannot resolve what's not disputed, provider is trying
                     // to bamboozle us
@@ -112,7 +110,6 @@ impl Client {
             }
         }
 
-        // TBD: should be enable this scenario?
         let available = available
             .checked_sub(self.withdrawn)
             .context(anyhow!("withdrawn more than deposited"))?;
