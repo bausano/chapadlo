@@ -74,15 +74,6 @@ impl FromStr for Amount {
                         .checked_mul(10_u64.pow(decimal_multiplier as u32))
                         .ok_or_else(|| anyhow!("integer overflow"))?;
 
-                println!(
-                    "{} {} {} {} {}",
-                    input,
-                    decimal_dot_index,
-                    integer_part,
-                    decimal_multiplier,
-                    decimal_part
-                );
-
                 integer_part
                     .checked_add(decimal_part)
                     .ok_or_else(|| anyhow!("integer overflow"))

@@ -10,8 +10,8 @@
 cargo test || exit 1
 
 test_file_1_output="$(cargo run -- test/assets/input1.csv | sort)"
-expected_test_file_1_output="1,0.5000,3.0,3.5000,false
-2,3.0,0.0,3.0,true
+expected_test_file_1_output="1,0.5000,3.0000,3.5000,false
+2,3.0000,0.0000,3.0000,true
 client,available,held,total,locked"
 
 echo
