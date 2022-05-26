@@ -48,10 +48,7 @@ impl Client {
                     &amount
                         .ok_or(anyhow!("missing amount for withdrawal tx"))?,
                 )?;
-                self.withdrawn = self
-                    .withdrawn
-                    .checked_add(amount)
-                    .ok_or(anyhow!("math overflow"))?;
+                self.withdrawn = self.withdrawn.checked_add(amount)?;
             }
             TransactionKindCsv::Deposit => {
                 let amount = Amount::from_str(
@@ -71,17 +68,13 @@ impl Client {
         for (tx_id, amount) in self.deposits {
             match self.flagged.get(&tx_id) {
                 Some(FlaggedTransactionState::Disputed) => {
-                    held = held
-                        .checked_add(amount)
-                        .ok_or(anyhow!("math overflow"))?;
+                    held = held.checked_add(amount)?;
                 }
                 Some(FlaggedTransactionState::ChargedBack) => {
                     frozen = true;
                 }
                 None => {
-                    available = available
-                        .checked_add(amount)
-                        .ok_or(anyhow!("math overflow"))?;
+                    available = available.checked_add(amount)?;
                 }
             }
         }
@@ -89,11 +82,9 @@ impl Client {
         // TBD: should be enable this scenario?
         let available = available
             .checked_sub(self.withdrawn)
-            .ok_or(anyhow!("withdrawn more than deposited"))?;
+            .context(anyhow!("withdrawn more than deposited"))?;
 
-        let total = held
-            .checked_add(available)
-            .ok_or(anyhow!("math overflow"))?;
+        let total = held.checked_add(available)?;
 
         Ok(format!(
             "{},{},{},{},{}\n",

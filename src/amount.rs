@@ -12,12 +12,18 @@ const DECIMAL_MULTIPLIER: u64 = 10_u64.pow(DECIMALS as u32);
 pub struct Amount(pub u64);
 
 impl Amount {
-    pub fn checked_add(self, other: Amount) -> Option<Amount> {
-        self.0.checked_add(other.0).map(Self)
+    pub fn checked_add(self, other: Amount) -> Result<Amount> {
+        self.0
+            .checked_add(other.0)
+            .map(Self)
+            .ok_or(anyhow!("integer overflow"))
     }
 
-    pub fn checked_sub(self, other: Amount) -> Option<Amount> {
-        self.0.checked_sub(other.0).map(Self)
+    pub fn checked_sub(self, other: Amount) -> Result<Amount> {
+        self.0
+            .checked_sub(other.0)
+            .map(Self)
+            .ok_or(anyhow!("integer underflow"))
     }
 }
 
@@ -29,7 +35,7 @@ impl FromStr for Amount {
             // special case for omitting decimal dot
             None => u64::from_str(input)?
                 .checked_mul(DECIMAL_MULTIPLIER)
-                .ok_or(anyhow!("math overflow")),
+                .ok_or(anyhow!("integer overflow")),
             Some(decimal_dot_index)
                 if decimal_dot_index == 0
                     || decimal_dot_index == input.len() - 1 =>
@@ -46,7 +52,7 @@ impl FromStr for Amount {
             Some(decimal_dot_index) => {
                 let integer_part = u64::from_str(&input[..decimal_dot_index])?
                     .checked_mul(DECIMAL_MULTIPLIER)
-                    .ok_or(anyhow!("math overflow"))?;
+                    .ok_or(anyhow!("integer overflow"))?;
 
                 // cases:
                 // "0.1" => 4 - 1 => 10^3 => 1 * 1000 => 0_1000
@@ -60,11 +66,11 @@ impl FromStr for Amount {
                 let decimal_part =
                     u64::from_str(&input[(decimal_dot_index + 1)..])?
                         .checked_mul(10_u64.pow(decimal_multiplier as u32))
-                        .ok_or(anyhow!("math overflow"))?;
+                        .ok_or(anyhow!("integer overflow"))?;
 
                 integer_part
                     .checked_add(decimal_part)
-                    .ok_or(anyhow!("math overflow"))
+                    .ok_or(anyhow!("integer overflow"))
             }
         }?;
 
