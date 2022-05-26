@@ -1,12 +1,13 @@
 mod amount;
+mod client;
 mod prelude;
 
+use client::Client;
 use prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, Write};
-use std::str::FromStr;
 
 #[derive(Debug, Deserialize)]
 struct TransactionCsv {
@@ -55,19 +56,6 @@ struct ClientCsv {
     total: String,
 }
 
-#[derive(Debug)]
-enum FlaggedTransactionState {
-    Disputed,
-    ChargedBack,
-}
-
-#[derive(Default, Debug)]
-struct Client {
-    deposits: Vec<(TxId, Amount)>,
-    withdrawn: Amount,
-    flagged: HashMap<TxId, FlaggedTransactionState>,
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let data = "\
     type, client, tx, amount
@@ -94,7 +82,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .from_reader(data.as_bytes());
     for result in rdr.deserialize() {
         let tx: TransactionCsv = result?;
-        process_transaction(&mut clients, tx)?;
+
+        let client = clients.entry(tx.client_id).or_insert(Client::default());
+        client.process_transaction(tx.id, tx.kind, tx.amount)?;
     }
 
     println!("client,available,held,total,locked");
@@ -113,93 +103,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     stdout.flush().map_err(|_| "cannot flush to stdout")?;
 
     Ok(())
-}
-
-fn process_transaction(
-    clients: &mut HashMap<ClientId, Client>,
-    tx: TransactionCsv,
-) -> Result<(), &'static str> {
-    let client = clients.entry(tx.client_id).or_insert(Client::default());
-
-    match tx.kind {
-        TransactionKindCsv::ChargeBack => {
-            client
-                .flagged
-                .insert(tx.id, FlaggedTransactionState::ChargedBack);
-        }
-        TransactionKindCsv::Dispute => {
-            client
-                .flagged
-                .insert(tx.id, FlaggedTransactionState::Disputed);
-        }
-        TransactionKindCsv::Resolve => {
-            match client
-                .flagged
-                .get(&tx.id)
-                .ok_or("Cannot resolve what's not disputed")?
-            {
-                FlaggedTransactionState::Disputed => {
-                    // we don't care if [`None`], it's provider's feed err
-                    client.flagged.remove(&tx.id);
-                }
-                // cannot resolve charged back tx, account frozen
-                FlaggedTransactionState::ChargedBack => (),
-            };
-        }
-        TransactionKindCsv::Withdrawal => {
-            let amount = Amount::from_str(
-                &tx.amount.ok_or("missing amount for withdrawal")?,
-            )?;
-            client.withdrawn = client
-                .withdrawn
-                .checked_add(amount)
-                .ok_or("withdrawal amount too large")?;
-        }
-        TransactionKindCsv::Deposit => {
-            let amount = Amount::from_str(
-                &tx.amount.ok_or("missing amount for deposit")?,
-            )?;
-            client.deposits.push((tx.id, amount));
-        }
-    };
-
-    Ok(())
-}
-
-impl Client {
-    fn into_csv_row(self, id: ClientId) -> Result<String, &'static str> {
-        let mut frozen = false;
-        let mut available = Amount(0);
-        let mut held = Amount(0);
-        for (tx_id, amount) in self.deposits {
-            match self.flagged.get(&tx_id) {
-                Some(FlaggedTransactionState::Disputed) => {
-                    held = held
-                        .checked_add(amount)
-                        .ok_or("held amount too large")?;
-                }
-                Some(FlaggedTransactionState::ChargedBack) => {
-                    frozen = true;
-                }
-                None => {
-                    available = available
-                        .checked_add(amount)
-                        .ok_or("available amount too large")?;
-                }
-            }
-        }
-
-        let available = available
-            .checked_sub(self.withdrawn)
-            .ok_or("withdrawn more than deposited")?;
-
-        let total = held
-            .checked_add(available)
-            .ok_or("total amount too large")?;
-
-        Ok(format!(
-            "{},{},{},{},{}\n",
-            id, available, held, total, frozen
-        ))
-    }
 }
