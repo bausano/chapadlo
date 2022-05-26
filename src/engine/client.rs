@@ -24,7 +24,7 @@ pub struct Client {
     flagged: HashMap<TxId, FlaggedTransactionState>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 enum FlaggedTransactionState {
     /// The amount on a disputed tx will count towards client's held amount.
     Disputed,
@@ -39,7 +39,7 @@ impl Client {
         &mut self,
         id: TxId,
         kind: TransactionKindCsv,
-        amount: Option<String>,
+        amount: Option<&str>,
     ) -> Result<()> {
         match kind {
             TransactionKindCsv::ChargeBack => {
@@ -47,7 +47,14 @@ impl Client {
                     .insert(id, FlaggedTransactionState::ChargedBack);
             }
             TransactionKindCsv::Dispute => {
-                self.flagged.insert(id, FlaggedTransactionState::Disputed);
+                match self.flagged.get(&id) {
+                    // cannot go from charged back to disputed
+                    Some(FlaggedTransactionState::ChargedBack) => (),
+                    _ => {
+                        self.flagged
+                            .insert(id, FlaggedTransactionState::Disputed);
+                    }
+                };
             }
             TransactionKindCsv::Resolve => {
                 match self.flagged.get(&id) {
@@ -68,14 +75,16 @@ impl Client {
                 };
             }
             TransactionKindCsv::Withdrawal => {
-                let amount = Amount::from_str(
-                    &amount.ok_or(anyhow!("no amount for withdrawal tx"))?,
-                )?;
+                let amount =
+                    Amount::from_str(amount.ok_or_else(|| {
+                        anyhow!("no amount for withdrawal tx")
+                    })?)?;
                 self.withdrawn = self.withdrawn.checked_add(amount)?;
             }
             TransactionKindCsv::Deposit => {
                 let amount = Amount::from_str(
-                    &amount.ok_or(anyhow!("no amount for deposit tx"))?,
+                    amount
+                        .ok_or_else(|| anyhow!("no amount for deposit tx"))?,
                 )?;
                 self.deposits.push((id, amount));
             }
@@ -114,5 +123,175 @@ impl Client {
             "{},{},{},{},{}\n",
             id, available, held, total, frozen
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_processes_chargeback_transaction() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![(1, FlaggedTransactionState::ChargedBack)]
+                .into_iter()
+                .collect()
+        );
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::ChargeBack,
+            Some("asd"),
+        )?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![(1, FlaggedTransactionState::ChargedBack)]
+                .into_iter()
+                .collect()
+        );
+
+        client.process_transaction(2, TransactionKindCsv::ChargeBack, None)?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![
+                (1, FlaggedTransactionState::ChargedBack),
+                (2, FlaggedTransactionState::ChargedBack)
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_processes_disputed_transaction() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
+        client.process_transaction(1, TransactionKindCsv::Dispute, None)?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![(1, FlaggedTransactionState::ChargedBack)]
+                .into_iter()
+                .collect()
+        );
+
+        let mut client = Client::default();
+        client.process_transaction(1, TransactionKindCsv::Dispute, None)?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![(1, FlaggedTransactionState::Disputed)]
+                .into_iter()
+                .collect()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_processes_resolved_transaction() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
+        client.process_transaction(1, TransactionKindCsv::Resolve, None)?;
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+        assert_eq!(
+            client.flagged,
+            vec![(1, FlaggedTransactionState::ChargedBack)]
+                .into_iter()
+                .collect()
+        );
+
+        let mut client = Client::default();
+        client.process_transaction(1, TransactionKindCsv::Dispute, None)?;
+        client.process_transaction(1, TransactionKindCsv::Resolve, None)?;
+        assert!(client.flagged.is_empty());
+        client.process_transaction(1, TransactionKindCsv::Resolve, None)?;
+        assert!(client.flagged.is_empty());
+        assert!(client.deposits.is_empty());
+        assert_eq!(client.withdrawn, Amount(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_processes_withdrawal_transaction() -> Result<()> {
+        let mut client = Client::default();
+
+        assert!(client
+            .process_transaction(1, TransactionKindCsv::Withdrawal, None)
+            .is_err());
+        assert!(client
+            .process_transaction(1, TransactionKindCsv::Withdrawal, Some("asd"))
+            .is_err());
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Withdrawal,
+            Some("10.0"),
+        )?;
+        assert_eq!(client.withdrawn, Amount(10_0000));
+        assert!(client.deposits.is_empty());
+        assert!(client.flagged.is_empty());
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Withdrawal,
+            Some("0.300"),
+        )?;
+        assert_eq!(client.withdrawn, Amount(10_3000));
+        assert!(client.deposits.is_empty());
+        assert!(client.flagged.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_processes_deposit_transaction() -> Result<()> {
+        let mut client = Client::default();
+
+        assert!(client
+            .process_transaction(1, TransactionKindCsv::Deposit, None)
+            .is_err());
+        assert!(client
+            .process_transaction(1, TransactionKindCsv::Deposit, Some("asd"))
+            .is_err());
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("10.0"),
+        )?;
+        assert_eq!(client.deposits, vec![(1, Amount(10_0000))]);
+        assert_eq!(client.withdrawn, Amount(0));
+        assert!(client.flagged.is_empty());
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Deposit,
+            Some("0.300"),
+        )?;
+        assert_eq!(
+            client.deposits,
+            vec![(1, Amount(10_0000)), (2, Amount(0_3000))]
+        );
+        assert_eq!(client.withdrawn, Amount(0));
+        assert!(client.flagged.is_empty());
+
+        Ok(())
     }
 }

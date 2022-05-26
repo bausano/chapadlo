@@ -9,7 +9,7 @@ use std::io;
 
 fn main() -> Result<()> {
     // skip the first arg as that's the binary path
-    let file = if let Some(csv_path) = env::args().skip(1).next() {
+    let file = if let Some(csv_path) = env::args().nth(1) {
         File::open(csv_path).context("cannot open csv file")
     } else {
         Err(anyhow!("no input file path provided"))

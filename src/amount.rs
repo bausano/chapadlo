@@ -16,14 +16,14 @@ impl Amount {
         self.0
             .checked_add(other.0)
             .map(Self)
-            .ok_or(anyhow!("integer overflow"))
+            .ok_or_else(|| anyhow!("integer overflow"))
     }
 
     pub fn checked_sub(self, other: Amount) -> Result<Amount> {
         self.0
             .checked_sub(other.0)
             .map(Self)
-            .ok_or(anyhow!("integer underflow"))
+            .ok_or_else(|| anyhow!("integer underflow"))
     }
 }
 
@@ -38,7 +38,7 @@ impl FromStr for Amount {
             // special case for omitting decimal dot
             None => u64::from_str(input)?
                 .checked_mul(DECIMAL_MULTIPLIER)
-                .ok_or(anyhow!("integer overflow")),
+                .ok_or_else(|| anyhow!("integer overflow")),
             Some(decimal_dot_index)
                 if decimal_dot_index == 0
                     || decimal_dot_index == input.len() - 1 =>
@@ -55,7 +55,7 @@ impl FromStr for Amount {
             Some(decimal_dot_index) => {
                 let integer_part = u64::from_str(&input[..decimal_dot_index])?
                     .checked_mul(DECIMAL_MULTIPLIER)
-                    .ok_or(anyhow!("integer overflow"))?;
+                    .ok_or_else(|| anyhow!("integer overflow"))?;
 
                 // cases:
                 // "0.1" => 4 - (3 - 1 - 1) => 1 * 10^3 => 0_1000
@@ -72,7 +72,7 @@ impl FromStr for Amount {
                 let decimal_part =
                     u64::from_str(&input[(decimal_dot_index + 1)..])?
                         .checked_mul(10_u64.pow(decimal_multiplier as u32))
-                        .ok_or(anyhow!("integer overflow"))?;
+                        .ok_or_else(|| anyhow!("integer overflow"))?;
 
                 println!(
                     "{} {} {} {} {}",
@@ -85,7 +85,7 @@ impl FromStr for Amount {
 
                 integer_part
                     .checked_add(decimal_part)
-                    .ok_or(anyhow!("integer overflow"))
+                    .ok_or_else(|| anyhow!("integer overflow"))
             }
         }?;
 

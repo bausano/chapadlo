@@ -9,10 +9,10 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-const CSV_HEADERS: &'static [u8] = b"client,available,held,total,locked\n";
+const CSV_HEADERS: &[u8] = b"client,available,held,total,locked\n";
 
 /// See the README for more information.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Copy, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionKindCsv {
     /// Is associated with a deposit transaction which have been disputed.
@@ -76,11 +76,11 @@ pub fn read_transactions(
         .trim(csv::Trim::All)
         .from_reader(handle);
     for result in rdr.deserialize() {
-        let tx: TransactionCsv = result
-            .with_context(|| format!("Invalid transaction row format"))?;
+        let tx: TransactionCsv =
+            result.with_context(|| "Invalid transaction row format")?;
 
-        let client = clients.entry(tx.client_id).or_insert(Client::default());
-        client.process_transaction(tx.id, tx.kind, tx.amount)?;
+        let client = clients.entry(tx.client_id).or_default();
+        client.process_transaction(tx.id, tx.kind, tx.amount.as_deref())?;
     }
 
     Ok(clients)
