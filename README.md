@@ -59,3 +59,16 @@ store the events as entries.
 - implement tests for empty csv, empty last/first row
 - works only on 64bit
 - withdrawn more than deposited
+
+# Commands
+
+Run the test suite with `./bin/test.sh` or just unit tests with `cargo test`.
+
+A prerequisite for code coverage tool is _Rust 1.61_ and following dependencies:
+
+```
+$ cargo install grcov
+$ rustup component add llvm-tools-preview
+```
+
+Then run `./bin/codecov.sh` and see the `target/debug/coverage/index.html`.
