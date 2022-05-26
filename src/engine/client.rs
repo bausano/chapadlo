@@ -7,7 +7,7 @@ use crate::prelude::*;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Client {
     /// Deposit txs are kept in vec instead of a map because it's
     /// write heavy and we don't actually need to read those txs more than
@@ -291,6 +291,145 @@ mod tests {
         );
         assert_eq!(client.withdrawn, Amount(0));
         assert!(client.flagged.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_serializes_client_as_empty_csv_row() -> Result<()> {
+        assert_eq!(
+            Client::default().into_csv_row(1)?,
+            "1,0.0000,0.0000,0.0000,false\n"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_fails_if_more_withdrawals_than_deposits() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Withdrawal,
+            Some("10.0"),
+        )?;
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Deposit,
+            Some("9.9999"),
+        )?;
+
+        assert!(client.into_csv_row(1).is_err(),);
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_can_end_up_even() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Withdrawal,
+            Some("1"),
+        )?;
+
+        assert_eq!(client.into_csv_row(1)?, "1,0.0000,0.0000,0.0000,false\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_marks_funds_as_held_if_disputed() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Deposit,
+            Some("3"),
+        )?;
+        client.process_transaction(1, TransactionKindCsv::Dispute, None)?;
+
+        assert_eq!(client.into_csv_row(1)?, "1,3.0000,1.0000,4.0000,false\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_freezes_client_if_charged_back() -> Result<()> {
+        let mut client = Client::default();
+
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client.process_transaction(
+            2,
+            TransactionKindCsv::Deposit,
+            Some("3"),
+        )?;
+        client.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
+
+        assert_eq!(client.into_csv_row(1)?, "1,3.0000,0.0000,3.0000,true\n");
+
+        Ok(())
+    }
+
+    #[test]
+    fn it_doesnt_mark_client_as_frozen_if_no_chargeback_on_valid_deposit(
+    ) -> Result<()> {
+        let mut client = Client::default();
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Deposit,
+            Some("2.0"),
+        )?;
+        client.process_transaction(
+            1,
+            TransactionKindCsv::Withdrawal,
+            Some("1.0"),
+        )?;
+        assert_eq!(
+            client.clone().into_csv_row(1).unwrap(),
+            "1,1.0000,0.0000,1.0000,false\n"
+        );
+
+        client.process_transaction(
+            2, // this deposit doesn't exist
+            TransactionKindCsv::ChargeBack,
+            None,
+        )?;
+        assert_eq!(
+            client.clone().into_csv_row(1).unwrap(),
+            "1,1.0000,0.0000,1.0000,false\n"
+        );
+
+        client.process_transaction(
+            3,
+            TransactionKindCsv::Withdrawal,
+            Some("0.0"),
+        )?;
+        client.process_transaction(
+            3, // doesn't work on withdrawal
+            TransactionKindCsv::ChargeBack,
+            None,
+        )?;
+        assert_eq!(
+            client.clone().into_csv_row(1).unwrap(),
+            "1,1.0000,0.0000,1.0000,false\n"
+        );
 
         Ok(())
     }
