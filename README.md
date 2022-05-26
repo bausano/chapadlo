@@ -58,3 +58,4 @@ alignment and enum largest variant size. Hence, it's more economical to
 store the events as entries.
 - implement tests for empty csv, empty last/first row
 - works only on 64bit
+- withdrawn more than deposited
