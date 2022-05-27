@@ -23,10 +23,31 @@ echo
 test_file_2_output="$(cargo run -- test/assets/input2.csv | sort)"
 expected_test_file_2_output="1,1.5000,0.0000,1.5000,false
 2,2.0000,0.0000,2.0000,false
-client,available,held,total"
+client,available,held,total,locked"
 echo
 echo
 [[ "${expected_test_file_2_output}" == "${test_file_2_output}" ]] \
     && echo "✔ Test 2 one passed" \
     || echo -e "✘ Test 2 failed\n\n${test_file_2_output}"
+echo
+
+test_file_3_output="$(cargo run -- test/assets/input3.csv | sort)"
+expected_test_file_3_output="1,1.0000,0.0000,1.0000,false
+client,available,held,total,locked"
+echo
+echo
+[[ "${expected_test_file_3_output}" == "${test_file_3_output}" ]] \
+    && echo "✔ Test 3 one passed" \
+    || echo -e "✘ Test 3 failed\n\n${test_file_3_output}"
+echo
+
+test_file_4_output="$(cargo run -- test/assets/input4.csv | sort)"
+expected_test_file_4_output="1,-1.0000,0.0000,-1.0000,true
+2,-1.0000,1.0000,0.0000,false
+client,available,held,total,locked"
+echo
+echo
+[[ "${expected_test_file_4_output}" == "${test_file_4_output}" ]] \
+    && echo "✔ Test 4 one passed" \
+    || echo -e "✘ Test 4 failed\n\n${test_file_4_output}"
 echo

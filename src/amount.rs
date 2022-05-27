@@ -1,4 +1,4 @@
-//! Decimal is represented by [`u64`] in this program. There are [`DECIMALS`]
+//! Decimal is represented by [`i64`] in this program. There are [`DECIMALS`]
 //! decimal places that the amounts are scaled by in the program.
 
 use crate::prelude::*;
@@ -6,10 +6,10 @@ use std::fmt;
 use std::str::FromStr;
 
 const DECIMALS: usize = 4;
-const DECIMAL_MULTIPLIER: u64 = 10_u64.pow(DECIMALS as u32);
+const DECIMAL_MULTIPLIER: i64 = 10_i64.pow(DECIMALS as u32);
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Amount(pub u64);
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Amount(pub i64);
 
 impl Amount {
     pub fn checked_add(self, other: Amount) -> Result<Amount> {
@@ -30,13 +30,15 @@ impl Amount {
 impl FromStr for Amount {
     type Err = anyhow::Error;
 
+    /// Deserializes positive amount.
+    ///
     /// ```rust
     /// assert_eq!(Amount::from_str("10.85"), Ok(Amount(10_8500)));
     /// ```
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let amount = match input.find('.') {
             // special case for omitting decimal dot
-            None => u64::from_str(input)?
+            None => i64::from_str(input)?
                 .checked_mul(DECIMAL_MULTIPLIER)
                 .ok_or_else(|| anyhow!("integer overflow")),
             Some(decimal_dot_index)
@@ -52,7 +54,7 @@ impl FromStr for Amount {
                 Err(anyhow!("at most 4 decimal places allowed"))
             }
             Some(decimal_dot_index) => {
-                let integer_part = u64::from_str(&input[..decimal_dot_index])?
+                let integer_part = i64::from_str(&input[..decimal_dot_index])?
                     .checked_mul(DECIMAL_MULTIPLIER)
                     .ok_or_else(|| anyhow!("integer overflow"))?;
 
@@ -69,8 +71,8 @@ impl FromStr for Amount {
                 // we know that "i" is not the last char in the string due to prev
                 // match branch
                 let decimal_part =
-                    u64::from_str(&input[(decimal_dot_index + 1)..])?
-                        .checked_mul(10_u64.pow(decimal_multiplier as u32))
+                    i64::from_str(&input[(decimal_dot_index + 1)..])?
+                        .checked_mul(10_i64.pow(decimal_multiplier as u32))
                         .ok_or_else(|| anyhow!("integer overflow"))?;
 
                 integer_part
@@ -105,11 +107,11 @@ mod tests {
         assert_eq!(Amount(0).checked_add(Amount(2)).unwrap(), Amount(2));
         assert_eq!(Amount(0).checked_add(Amount(0)).unwrap(), Amount(0));
         assert_eq!(
-            Amount(u64::MAX).checked_add(Amount(0)).unwrap(),
-            Amount(u64::MAX)
+            Amount(i64::MAX).checked_add(Amount(0)).unwrap(),
+            Amount(i64::MAX)
         );
 
-        assert!(Amount(u64::MAX).checked_add(Amount(1)).is_err());
+        assert!(Amount(i64::MAX).checked_add(Amount(1)).is_err());
     }
 
     #[test]
@@ -119,15 +121,16 @@ mod tests {
         assert_eq!(Amount(0).checked_sub(Amount(0)).unwrap(), Amount(0));
         assert_eq!(Amount(1).checked_sub(Amount(0)).unwrap(), Amount(1));
         assert_eq!(
-            Amount(u64::MAX).checked_sub(Amount(0)).unwrap(),
-            Amount(u64::MAX)
+            Amount(i64::MAX).checked_sub(Amount(0)).unwrap(),
+            Amount(i64::MAX)
         );
         assert_eq!(
-            Amount(u64::MAX).checked_sub(Amount(u64::MAX)).unwrap(),
+            Amount(i64::MAX).checked_sub(Amount(i64::MAX)).unwrap(),
             Amount(0)
         );
+        assert_eq!(Amount(0).checked_sub(Amount(1)).unwrap(), Amount(-1));
 
-        assert!(Amount(0).checked_sub(Amount(1)).is_err());
+        assert!(Amount(-i64::MAX).checked_sub(Amount(i64::MAX)).is_err());
     }
 
     #[test]

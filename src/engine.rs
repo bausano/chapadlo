@@ -223,7 +223,6 @@ mod tests {
             Some("1"),
         )?;
         client2.process_transaction(5, TransactionKindCsv::ChargeBack, None)?;
-        // this will have no effect, wrong client
         client2.process_transaction(1, TransactionKindCsv::ChargeBack, None)?;
         client2.process_transaction(
             8,
@@ -231,22 +230,30 @@ mod tests {
             Some("1"),
         )?;
         client2.process_transaction(8, TransactionKindCsv::Dispute, None)?;
+        client2.process_transaction(
+            9,
+            TransactionKindCsv::Deposit,
+            Some("1"),
+        )?;
+        client2.process_transaction(9, TransactionKindCsv::Dispute, None)?;
+        client2.process_transaction(9, TransactionKindCsv::ChargeBack, None)?;
 
         let mut buf = vec![];
         write_clients(
             &mut buf,
-            vec![(10, client1), (15, client2), (20, Client::default())]
+            vec![(1, client1), (2, client2), (3, Client::default())]
                 .into_iter()
                 .collect(),
         )?;
 
         let csv = String::from_utf8(buf)?;
         let lines: Vec<&str> = csv.lines().collect();
+        println!("{:#?}", lines);
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[0], "client,available,held,total,locked");
-        assert!(lines.contains(&"10,1.0000,0.0000,1.0000,false"));
-        assert!(lines.contains(&"15,0.0000,1.0000,1.0000,true"));
-        assert!(lines.contains(&"20,0.0000,0.0000,0.0000,false"));
+        assert!(lines.contains(&"1,1.0000,0.0000,1.0000,false"));
+        assert!(lines.contains(&"2,1.0000,1.0000,2.0000,true"));
+        assert!(lines.contains(&"3,0.0000,0.0000,0.0000,false"));
 
         Ok(())
     }

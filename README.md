@@ -45,36 +45,46 @@ as order is not important, however a BTree map is a viable and simple drop-in
 replacement which would give us ordering by client id if needed.
 
 We opt for a map of ids to states because we assume that there will be many
-more transactions than clients. While inserting into a map is expensive, the
-grouping provided by a map enables fast transaction associations.
+more transactions than clients. While inserting into a does incur expensive
+inserts when map needs to be resized, the grouping provided by a map enables
+fast transaction associations.
 
-The client state is composed of three properties. A vector of tuples
-representing deposits, ie. each tuple is a tx id and an amount that was
-deposited. We opt for vector here for fast insertions, as it will be obvious in
-the next few paragraphs that we don't need to access the deposit transactions
-by id and therefore don't fast reads by id. Next property is a single integer
-representing withdrawn amount. Third property is a hash map of deposit tx ids
-to tx states. A deposit tx state can be "fine", which is represented by that tx
-id _not_ being present in the map. Or it can be "disputed", or "charged back".
-We only store in the map states for txs of the latter two variants. When we
-process resolve tx, we remove "disputed" state from the map.
+The client state is composed out of several properties:
+* a flag `is_frozen` which is set to true upon disputed followed by a charge
+  back and causes the engine to ignore any further deposits or withdraws;
+* a hash set `disputes` which tracks currently disputed tx ids;
+* a hash map `deposits` which associates tx id with deposited amounts;
+* an integer `available` which tracks currently available funds;
+* an integer `held` which tracks currently disputed funds.
 
-When we serialize client's state to CSV, we iterate over all deposit txs. For
-each tx in the vector we check the hash map of states whether the tx has been
-"disputed" or "charged back". Accordingly, we increment available/total/held
-integers and in the end print them.
+Key points:
+* Withdrawals over available amount are skipped.
+* Final amount of available funds _can_ be lower than 0 (see test asset 4.)
+* Clients hash map memory grows only with deposit txs, 12 bytes per deposit tx.
+  The disputes are assumed to be rare and withdrawals don't project into memory
+  footprint.
 
-Some edge cases:
+Parallelization can be achieved for example by
+* spawning a single thread which owns the client's hash map and consumes a
+  channel over which producers batch txs;
+* rw-locking client state and using concurrent hash map for client states. Then
+  an atomic reference counter can be given out to producers who load txs and
+  update global state.
+
+Some edge cases (see `Client::process_transaction` for a better understanding):
 * Only deposit tx can be disputed, resolved or charged back. Txs which try to
   change the state of withdrawal txs are ignored.
 * Once charged back, a deposit tx cannot go back to disputed or resolved. If a
   sequence of txs that leads to this scenario occurs, we ignore tx so that
   charge back is a final state of any tx.
-* If the sum of successful deposit txs is larger than the sum of withdrawal
-  txs, we abort.
 * If a math overflow is encountered at any point, we abort.
 * We are gracious with empty rows, however if we come across a malformed input
   in a row with expected length, we abort.
+* If we encounter duplicate deposit tx id, we skip it. We don't track
+  withdrawals, so duplicate withdrawal tx id will be counted twice.
+* Once a client is frozen we ignore all further deposits and withdrawals, but
+  disputes are still possible.
+* Once charged back, a deposit tx cannot be disputed again.
 
 # Commands
 This binary has been tested on a 64bit linux distro with rustc 1.61.
