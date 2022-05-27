@@ -71,7 +71,8 @@ Parallelization can be achieved for example by
   an atomic reference counter can be given out to producers who load txs and
   update global state.
 
-Some edge cases (see `Client::process_transaction` for a better understanding):
+Some edge cases (see [`Client::process_transaction`][fn-process-transaction] for
+a deeper understanding):
 * Only deposit tx can be disputed, resolved or charged back. Txs which try to
   change the state of withdrawal txs are ignored.
 * Once charged back, a deposit tx cannot go back to disputed or resolved. If a
@@ -103,3 +104,4 @@ Then run `./bin/codecov.sh` and see the `target/debug/coverage/index.html`.
 
 <!-- List of References -->
 [csv]: https://crates.io/crates/csv
+[fn-process-transaction]: src/engine/client.rs
